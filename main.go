@@ -54,7 +54,7 @@ type Msg struct {
 }
 
 var (
-	nc, natsError = nats.Connect("localhost", nil, nats.PingInterval(20*time.Second), nats.MaxPingsOutstanding(5))
+	nc, natsError = nats.Connect(getEnv("NATS_HOST", "localhost"), nil, nats.PingInterval(20*time.Second), nats.MaxPingsOutstanding(5))
 )
 
 const (
