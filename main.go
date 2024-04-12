@@ -63,8 +63,8 @@ const (
 )
 
 // Publish a clients scan event on the broadcasting websocket server
-func publishScanEvent(nc *nats.Conn, conn *websocket.Conn) {
-	if _, err := nc.Subscribe("scanevent", func(m *nats.Msg) {
+func broadcastEvents(topic string, eventMessage string, nc *nats.Conn, conn *websocket.Conn) {
+	if _, err := nc.Subscribe(topic, func(m *nats.Msg) {
 		// Initialize CommandCenter struct
 		c := CommandCenter{}
 		// Load received values
@@ -74,7 +74,7 @@ func publishScanEvent(nc *nats.Conn, conn *websocket.Conn) {
 		}
 		// Publish message to websocket
 		msg := Msg{
-			Data: fmt.Sprintf("%s initiated a scan", c.ID),
+			Data: fmt.Sprintf("%s %s", c.ID, eventMessage),
 			Id:   c.ID,
 		}
 		message, err := json.Marshal(msg)
@@ -384,7 +384,8 @@ func main() {
 	go firewallUpdate(nc, settings, c)
 	go scannerUpdate(nc, settings, c)
 	go stealerUpdate(nc, settings, c)
-	go publishScanEvent(nc, c)
+	go broadcastEvents("scanevent", "initiated a scan", nc, c)
+	go broadcastEvents("stealevent", "is trying to steal coins", nc, c)
 
 	// TODO: Gamesettings listener (ADMIN TOOLS)
 	// Run indefinitely
