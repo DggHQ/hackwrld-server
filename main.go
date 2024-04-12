@@ -353,7 +353,7 @@ func getEnv(key, defaultValue string) string {
 func main() {
 
 	log.Println("Connecting to socket server.")
-	u := url.URL{Scheme: "ws", Host: fmt.Sprintf("%s:%s", getEnv("HOST", "localhost"), getEnv("PORT", "8080")), Path: "/ws", RawQuery: fmt.Sprintf("token=%s", getEnv("KEY", "secret"))}
+	u := url.URL{Scheme: getEnv("SCHEME", "ws"), Host: fmt.Sprintf("%s:%s", getEnv("HOST", "localhost"), getEnv("PORT", "8080")), Path: "/ws", RawQuery: fmt.Sprintf("token=%s", getEnv("KEY", "secret"))}
 	log.Printf("connecting to %s", u.String())
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	go readLoop(c)
