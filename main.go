@@ -47,6 +47,15 @@ type UpgradeReply struct {
 	Cost  float32 `json:"cost"`
 }
 
+// StealReply struct
+type StealReply struct {
+	Attacker    string  `json:"attacker"`
+	Defender    string  `json:"defender"`
+	Success     bool    `json:"success"`
+	GainedCoins float32 `json:"gainedCoins"`
+	CoolDown    bool    `json:"cooldown"`
+}
+
 // Websocket Broadcast Message
 type Msg struct {
 	Id   string `json:"id"`
@@ -61,6 +70,36 @@ const (
 	// Time allowed to write a message to the peer.
 	writeWait = 10 * time.Second
 )
+
+func broadcastStealEvent(topic string, nc *nats.Conn, conn *websocket.Conn) {
+	if _, err := nc.Subscribe(topic, func(m *nats.Msg) {
+		// Initialize StealReply struct
+		reply := StealReply{}
+		// Load received values
+		err := json.Unmarshal(m.Data, &reply)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		// Publish message to websocket
+		msg := Msg{
+			Id:   reply.Defender,
+			Data: fmt.Sprintf("%s lost %f coins to %s", reply.Defender, reply.GainedCoins, reply.Attacker),
+		}
+		message, err := json.Marshal(msg)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		conn.SetWriteDeadline(time.Now().Add(writeWait))
+		ok := conn.WriteMessage(websocket.TextMessage, message)
+		if ok != nil {
+			log.Println("write:", ok)
+			return
+		}
+		// Websocket stuff
+	}); err != nil {
+		log.Fatal(err)
+	}
+}
 
 // Publish a clients scan event on the broadcasting websocket server
 func broadcastEvents(topic string, eventMessage string, nc *nats.Conn, conn *websocket.Conn) {
@@ -386,6 +425,7 @@ func main() {
 	go stealerUpdate(nc, settings, c)
 	go broadcastEvents("scanevent", "initiated a scan", nc, c)
 	go broadcastEvents("stealevent", "is trying to steal coins", nc, c)
+	go broadcastStealEvent("stealresult", nc, c)
 
 	// TODO: Gamesettings listener (ADMIN TOOLS)
 	// Run indefinitely
