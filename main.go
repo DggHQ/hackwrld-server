@@ -69,6 +69,7 @@ type Msg struct {
 	Data string `json:"data"`
 }
 
+// Setup global variables
 var (
 	nc, natsError = nats.Connect(
 		getEnv("NATS_HOST", "localhost"),
@@ -90,6 +91,8 @@ const (
 	writeWait = 10 * time.Second
 )
 
+// Publish the steal event to the websocket connection
+// Shows who stole from whom and how much they stole
 func broadcastStealEvent(topic string, nc *nats.Conn, wsmessage chan []byte) {
 	if _, err := nc.QueueSubscribe(topic, "broadcast", func(m *nats.Msg) {
 		// Initialize StealReply struct
@@ -99,7 +102,6 @@ func broadcastStealEvent(topic string, nc *nats.Conn, wsmessage chan []byte) {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		// Publish message to websocket
 		msg := Msg{
 			Id:   reply.Defender.ID,
 			Data: fmt.Sprintf("%s lost %f coins to %s", reply.Defender.Nick, reply.GainedCoins, reply.Attacker.Nick),
@@ -108,17 +110,8 @@ func broadcastStealEvent(topic string, nc *nats.Conn, wsmessage chan []byte) {
 		if err != nil {
 			log.Fatalln(err)
 		}
+		// Write message to channel to be written to websocket connection
 		wsmessage <- message
-		// Write message in a background task and close connection afterwards
-
-		// conn.SetWriteDeadline(time.Now().Add(writeWait))
-		// ok := conn.WriteMessage(websocket.TextMessage, message)
-		// if ok != nil {
-		// 	log.Println("write:", ok)
-		// 	return
-		// }
-
-		// Websocket stuff
 	}); err != nil {
 		log.Fatal(err)
 	}
@@ -134,7 +127,6 @@ func broadcastEvents(topic string, eventMessage string, nc *nats.Conn, wsmessage
 		if err != nil {
 			log.Fatalln(err)
 		}
-		// Publish message to websocket
 		msg := Msg{
 			Data: fmt.Sprintf("%s %s", c.Nick, eventMessage),
 			Id:   c.ID,
@@ -143,15 +135,8 @@ func broadcastEvents(topic string, eventMessage string, nc *nats.Conn, wsmessage
 		if err != nil {
 			log.Fatalln(err)
 		}
-		// Write message in a background task and close connection afterwards
+		// Write message to channel to be written to websocket connection
 		wsmessage <- message
-		// conn.SetWriteDeadline(time.Now().Add(writeWait))
-		// ok := conn.WriteMessage(websocket.TextMessage, message)
-		// if ok != nil {
-		// 	log.Println("write:", ok)
-		// 	return
-		// }
-		// Websocket stuff
 	}); err != nil {
 		log.Fatal(err)
 	}
@@ -182,7 +167,6 @@ func minerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
 			}
 			m.Respond(jsonReply)
 
-			// Websocket stuff
 			msg := Msg{
 				Data: fmt.Sprintf("%s upgraded their miner.", c.Nick),
 				Id:   c.ID,
@@ -191,15 +175,8 @@ func minerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
 			if err != nil {
 				log.Fatalln(err)
 			}
-			// Write message in a background task and close connection afterwards
+			// Write message to channel to be written to websocket connection
 			wsmessage <- message
-			// conn.SetWriteDeadline(time.Now().Add(writeWait))
-			// ok := conn.WriteMessage(websocket.TextMessage, message)
-			// if ok != nil {
-			// 	log.Println("write:", ok)
-			// 	return
-			// }
-			// Websocket stuff
 
 		} else {
 			// Deny commandCenter the upgrade
@@ -244,7 +221,6 @@ func firewallUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte)
 			}
 			m.Respond(jsonReply)
 
-			// Websocket stuff
 			msg := Msg{
 				Data: fmt.Sprintf("%s upgraded their firewall.", c.Nick),
 				Id:   c.ID,
@@ -253,15 +229,8 @@ func firewallUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte)
 			if err != nil {
 				log.Fatalln(err)
 			}
-			// Write message in a background task and close connection afterwards
+			// Write message to channel to be written to websocket connection
 			wsmessage <- message
-			// conn.SetWriteDeadline(time.Now().Add(writeWait))
-			// ok := conn.WriteMessage(websocket.TextMessage, message)
-			// if ok != nil {
-			// 	log.Println("write:", ok)
-			// 	return
-			// }
-			// Websocket stuff
 		} else {
 			// Deny commandCenter the upgrade
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
@@ -305,7 +274,6 @@ func stealerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 			}
 			m.Respond(jsonReply)
 
-			// Websocket stuff
 			msg := Msg{
 				Data: fmt.Sprintf("%s upgraded their stealer.", c.Nick),
 				Id:   c.ID,
@@ -314,15 +282,8 @@ func stealerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 			if err != nil {
 				log.Fatalln(err)
 			}
-			// Write message in a background task and close connection afterwards
+			// Write message to channel to be written to websocket connection
 			wsmessage <- message
-			// conn.SetWriteDeadline(time.Now().Add(writeWait))
-			// ok := conn.WriteMessage(websocket.TextMessage, message)
-			// if ok != nil {
-			// 	log.Println("write:", ok)
-			// 	return
-			// }
-			// Websocket stuff
 		} else {
 			// Deny commandCenter the upgrade
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
@@ -365,7 +326,7 @@ func scannerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 				log.Fatalln(err)
 			}
 			m.Respond(jsonReply)
-			// Websocket stuff
+
 			msg := Msg{
 				Data: fmt.Sprintf("%s upgraded their scanner.", c.Nick),
 				Id:   c.ID,
@@ -374,15 +335,8 @@ func scannerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 			if err != nil {
 				log.Fatalln(err)
 			}
-			// Write message in a background task and close connection afterwards
+			// Write message to channel to be written to websocket connection
 			wsmessage <- message
-			// conn.SetWriteDeadline(time.Now().Add(writeWait))
-			// ok := conn.WriteMessage(websocket.TextMessage, message)
-			// if ok != nil {
-			// 	log.Println("write:", ok)
-			// 	return
-			// }
-			// Websocket stuff
 		} else {
 			// Deny commandCenter the upgrade
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
@@ -426,16 +380,21 @@ func main() {
 
 	log.Println("Connecting to socket server.")
 	log.Printf("connecting to %s", u.String())
+	// Connect to websocket server
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 
+	// Keep websocket connection alive
 	go readLoop(c)
 
 	if err != nil {
 		log.Fatal("dial:", err)
 	}
 
+	// Launch goroutine that handles the messages that come into the channel and write them to the connection.
 	go func(connection *websocket.Conn) {
 		for msg := range wsmessage {
+			// Dunnot if writedeadline is needed since it seems to be working fine w/o it
+			//c.SetWriteDeadline(time.Now().Add(writeWait))
 			ok := c.WriteMessage(websocket.TextMessage, msg)
 			if ok != nil {
 				log.Println("write:", ok)
@@ -444,6 +403,7 @@ func main() {
 	}(c)
 
 	log.Println("Starting gamemaster.")
+	// Set waitgroup to keep program running forever
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
@@ -455,12 +415,13 @@ func main() {
 		stealerUpdateCost:  0.1,
 	}
 
+	// Log when nats cannot connect
 	if natsError != nil {
 		log.Fatalln(natsError)
 	}
 	defer nc.Close()
 
-	// Run goroutines handling updates
+	// Run goroutines handling updates and broadcasts for the websocket connection
 	go minerUpdate(nc, settings, wsmessage)
 	go firewallUpdate(nc, settings, wsmessage)
 	go scannerUpdate(nc, settings, wsmessage)
@@ -470,6 +431,9 @@ func main() {
 	go broadcastStealEvent("stealresult", nc, wsmessage)
 
 	// TODO: Gamesettings listener (ADMIN TOOLS)
+	// At some point this game master could be configured remotely to dynamically change cost of components
+	// This might be a future feature.
+
 	// Run indefinitely
 	wg.Wait()
 
