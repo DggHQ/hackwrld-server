@@ -50,8 +50,14 @@ type UpgradeReply struct {
 
 // StealReply struct
 type StealReply struct {
-	Attacker    string  `json:"attacker"`
-	Defender    string  `json:"defender"`
+	Attacker struct {
+		ID   string `json:"id"`
+		Nick string `json:"nick"`
+	} `json:"attacker"`
+	Defender struct {
+		ID   string `json:"id"`
+		Nick string `json:"nick"`
+	} `json:"defender"`
 	Success     bool    `json:"success"`
 	GainedCoins float32 `json:"gainedCoins"`
 	CoolDown    bool    `json:"cooldown"`
@@ -83,8 +89,8 @@ func broadcastStealEvent(topic string, nc *nats.Conn, conn *websocket.Conn) {
 		}
 		// Publish message to websocket
 		msg := Msg{
-			Id:   reply.Defender,
-			Data: fmt.Sprintf("%s lost %f coins to %s", reply.Defender, reply.GainedCoins, reply.Attacker),
+			Id:   reply.Defender.ID,
+			Data: fmt.Sprintf("%s lost %f coins to %s", reply.Defender.Nick, reply.GainedCoins, reply.Attacker.Nick),
 		}
 		message, err := json.Marshal(msg)
 		if err != nil {
@@ -114,7 +120,7 @@ func broadcastEvents(topic string, eventMessage string, nc *nats.Conn, conn *web
 		}
 		// Publish message to websocket
 		msg := Msg{
-			Data: fmt.Sprintf("%s %s", c.ID, eventMessage),
+			Data: fmt.Sprintf("%s %s", c.Nick, eventMessage),
 			Id:   c.ID,
 		}
 		message, err := json.Marshal(msg)
@@ -160,7 +166,7 @@ func minerUpdate(nc *nats.Conn, settings GameSettings, conn *websocket.Conn) {
 
 			// Websocket stuff
 			msg := Msg{
-				Data: fmt.Sprintf("%s upgraded their miner.", c.ID),
+				Data: fmt.Sprintf("%s upgraded their miner.", c.Nick),
 				Id:   c.ID,
 			}
 			message, err := json.Marshal(msg)
@@ -220,7 +226,7 @@ func firewallUpdate(nc *nats.Conn, settings GameSettings, conn *websocket.Conn) 
 
 			// Websocket stuff
 			msg := Msg{
-				Data: fmt.Sprintf("%s upgraded their firewall.", c.ID),
+				Data: fmt.Sprintf("%s upgraded their firewall.", c.Nick),
 				Id:   c.ID,
 			}
 			message, err := json.Marshal(msg)
@@ -279,7 +285,7 @@ func stealerUpdate(nc *nats.Conn, settings GameSettings, conn *websocket.Conn) {
 
 			// Websocket stuff
 			msg := Msg{
-				Data: fmt.Sprintf("%s upgraded their stealer.", c.ID),
+				Data: fmt.Sprintf("%s upgraded their stealer.", c.Nick),
 				Id:   c.ID,
 			}
 			message, err := json.Marshal(msg)
@@ -337,7 +343,7 @@ func scannerUpdate(nc *nats.Conn, settings GameSettings, conn *websocket.Conn) {
 			m.Respond(jsonReply)
 			// Websocket stuff
 			msg := Msg{
-				Data: fmt.Sprintf("%s upgraded their scanner.", c.ID),
+				Data: fmt.Sprintf("%s upgraded their scanner.", c.Nick),
 				Id:   c.ID,
 			}
 			message, err := json.Marshal(msg)
@@ -393,7 +399,12 @@ func getEnv(key, defaultValue string) string {
 func main() {
 
 	log.Println("Connecting to socket server.")
-	u := url.URL{Scheme: getEnv("SCHEME", "ws"), Host: fmt.Sprintf("%s:%s", getEnv("HOST", "localhost"), getEnv("PORT", "8080")), Path: "/ws", RawQuery: fmt.Sprintf("token=%s", getEnv("KEY", "secret"))}
+	u := url.URL{
+		Scheme:   getEnv("SCHEME", "ws"),
+		Host:     fmt.Sprintf("%s:%s", getEnv("HOST", "localhost"), getEnv("PORT", "8080")),
+		Path:     "/ws",
+		RawQuery: fmt.Sprintf("token=%s", getEnv("KEY", "secret")),
+	}
 	log.Printf("connecting to %s", u.String())
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	go readLoop(c)
