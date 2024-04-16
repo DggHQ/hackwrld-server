@@ -16,6 +16,7 @@ import (
 // CommandCenter struct
 type CommandCenter struct {
 	ID       string `json:"id"`
+	Nick     string `json:"nick"`
 	Firewall struct {
 		Level float32 `json:"level"`
 	} `json:"firewall"`
