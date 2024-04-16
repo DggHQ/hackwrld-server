@@ -158,7 +158,7 @@ func broadcastEvents(topic string, eventMessage string, nc *nats.Conn, wsmessage
 }
 
 // Handle client miner upgrades
-func minerUpdate(nc *nats.Conn, settings GameSetting, wsmessage chan []byte) {
+func minerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
 	// Subscribe
 	if _, err := nc.QueueSubscribe("commandcenter.*.upgradeMiner", "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
