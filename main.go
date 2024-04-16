@@ -79,7 +79,7 @@ const (
 )
 
 func broadcastStealEvent(topic string, nc *nats.Conn, conn *websocket.Conn) {
-	if _, err := nc.Subscribe(topic, func(m *nats.Msg) {
+	if _, err := nc.QueueSubscribe(topic, "broadcast", func(m *nats.Msg) {
 		// Initialize StealReply struct
 		reply := StealReply{}
 		// Load received values
@@ -110,7 +110,7 @@ func broadcastStealEvent(topic string, nc *nats.Conn, conn *websocket.Conn) {
 
 // Publish a clients scan event on the broadcasting websocket server
 func broadcastEvents(topic string, eventMessage string, nc *nats.Conn, conn *websocket.Conn) {
-	if _, err := nc.Subscribe(topic, func(m *nats.Msg) {
+	if _, err := nc.QueueSubscribe(topic, "broadcast", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
 		c := CommandCenter{}
 		// Load received values
@@ -142,7 +142,7 @@ func broadcastEvents(topic string, eventMessage string, nc *nats.Conn, conn *web
 // Handle client miner upgrades
 func minerUpdate(nc *nats.Conn, settings GameSettings, conn *websocket.Conn) {
 	// Subscribe
-	if _, err := nc.Subscribe("commandcenter.*.upgradeMiner", func(m *nats.Msg) {
+	if _, err := nc.QueueSubscribe("commandcenter.*.upgradeMiner", "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
 		c := CommandCenter{}
 		// Load received values
@@ -202,7 +202,7 @@ func minerUpdate(nc *nats.Conn, settings GameSettings, conn *websocket.Conn) {
 // Handle client firewall upgrades
 func firewallUpdate(nc *nats.Conn, settings GameSettings, conn *websocket.Conn) {
 	// Subscribe
-	if _, err := nc.Subscribe("commandcenter.*.upgradeFirewall", func(m *nats.Msg) {
+	if _, err := nc.QueueSubscribe("commandcenter.*.upgradeFirewall", "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
 		c := CommandCenter{}
 		// Load received values
@@ -261,7 +261,7 @@ func firewallUpdate(nc *nats.Conn, settings GameSettings, conn *websocket.Conn) 
 // Handle client stealer upgrades
 func stealerUpdate(nc *nats.Conn, settings GameSettings, conn *websocket.Conn) {
 	// Subscribe
-	if _, err := nc.Subscribe("commandcenter.*.upgradeStealer", func(m *nats.Msg) {
+	if _, err := nc.QueueSubscribe("commandcenter.*.upgradeStealer", "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
 		c := CommandCenter{}
 		// Load received values
@@ -320,7 +320,7 @@ func stealerUpdate(nc *nats.Conn, settings GameSettings, conn *websocket.Conn) {
 // Handle client scanner upgrades
 func scannerUpdate(nc *nats.Conn, settings GameSettings, conn *websocket.Conn) {
 	// Subscribe
-	if _, err := nc.Subscribe("commandcenter.*.upgradeScanner", func(m *nats.Msg) {
+	if _, err := nc.QueueSubscribe("commandcenter.*.upgradeScanner", "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
 		c := CommandCenter{}
 		// Load received values
