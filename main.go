@@ -84,6 +84,7 @@ var (
 		Path:     "/ws",
 		RawQuery: fmt.Sprintf("token=%s", getEnv("KEY", "secret")),
 	}
+	monitor = Monitor{}
 )
 
 const (
@@ -153,6 +154,7 @@ func minerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
 		if err != nil {
 			log.Fatalln(err)
 		}
+		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "miner").Inc()
 		cost := float32(c.CryptoMiner.Level) * settings.minerUpdateCost
 		if c.Funds.Amount >= cost {
 			// Allow commandCenter to purchase the upgrade
@@ -207,6 +209,7 @@ func firewallUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte)
 		if err != nil {
 			log.Fatalln(err)
 		}
+		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "firewall").Inc()
 		cost := float32(c.Firewall.Level) * settings.firewallUpdateCost
 		if c.Funds.Amount >= cost {
 			// Allow commandCenter to purchase the upgrade
@@ -260,6 +263,7 @@ func stealerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 		if err != nil {
 			log.Fatalln(err)
 		}
+		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "stealer").Inc()
 		cost := float32(c.Stealer.Level) * settings.stealerUpdateCost
 		if c.Funds.Amount >= cost {
 			// Allow commandCenter to purchase the upgrade
@@ -313,6 +317,7 @@ func scannerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 		if err != nil {
 			log.Fatalln(err)
 		}
+		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "scanner").Inc()
 		cost := float32(c.Scanner.Level) * settings.scannerUpdateCost
 		if c.Funds.Amount >= cost {
 			// Allow commandCenter to purchase the upgrade
@@ -376,6 +381,10 @@ func getEnv(key, defaultValue string) string {
 	return value
 }
 
+func init() {
+	monitor.Init()
+}
+
 func main() {
 
 	log.Println("Connecting to socket server.")
@@ -429,6 +438,7 @@ func main() {
 	go broadcastEvents("scanevent", "initiated a scan", nc, wsmessage)
 	go broadcastEvents("stealevent", "is trying to steal coins", nc, wsmessage)
 	go broadcastStealEvent("stealresult", nc, wsmessage)
+	go monitor.Run()
 
 	// TODO: Gamesettings listener (ADMIN TOOLS)
 	// At some point this game master could be configured remotely to dynamically change cost of components
