@@ -92,6 +92,67 @@ const (
 	writeWait = 10 * time.Second
 )
 
+func (c *CommandCenter) calculateUpgrade(level float32, numUpgrades int, baseCost float32) float32 {
+	costAtCurrentLevel := level * baseCost                                                           //0.1
+	totalCost := float32(numUpgrades) / 2 * (2*costAtCurrentLevel + float32(numUpgrades-1)*baseCost) //0.1)
+	return totalCost
+}
+
+func (c *CommandCenter) UpgradeCost(component string, numUpgrades int, settings GameSettings) float32 {
+	switch component {
+	case "firewall":
+		return c.calculateUpgrade(c.Firewall.Level, numUpgrades, settings.firewallUpdateCost)
+	case "scanner":
+		return c.calculateUpgrade(c.Scanner.Level, numUpgrades, settings.scannerUpdateCost)
+	case "miner":
+		return c.calculateUpgrade(c.CryptoMiner.Level, numUpgrades, settings.minerUpdateCost)
+	case "stealer":
+		return c.calculateUpgrade(c.Stealer.Level, numUpgrades, settings.stealerUpdateCost)
+	default:
+		return 0.0 // or handle unknown functionality case
+	}
+}
+
+func (c *CommandCenter) maxUpgrades(availableMoney float32, currentLevel int, baseCost float32) int {
+	// Calculate cost at current level
+	costAtCurrentLevel := float32(currentLevel) * baseCost // 0.1
+	// If the cost at the current level is greater than available money, no upgrades possible
+	if costAtCurrentLevel > availableMoney {
+		return 0
+	}
+	// Initialize the maximum number of upgrades with one upgrade at the current level
+	maxUpgrades := 1
+	totalCost := costAtCurrentLevel
+	// Calculate the cost for each additional upgrade until it exceeds available money
+	for {
+		// Calculate the cost for one more upgrade
+		cost := float32(maxUpgrades+currentLevel) * baseCost //0.1
+		// If adding one more upgrade exceeds available money, stop
+		if totalCost+cost > availableMoney {
+			break
+		}
+		// Otherwise, increment maxUpgrades and update totalCost
+		maxUpgrades++
+		totalCost += cost
+	}
+	return maxUpgrades
+}
+
+func (c *CommandCenter) MaxUpgradesByComponent(availableMoney float32, component string, currentLevel int, settings GameSettings) int {
+	switch component {
+	case "firewall":
+		return c.maxUpgrades(availableMoney, int(c.Firewall.Level), settings.firewallUpdateCost)
+	case "scanner":
+		return c.maxUpgrades(availableMoney, int(c.Scanner.Level), settings.scannerUpdateCost)
+	case "miner":
+		return c.maxUpgrades(availableMoney, int(c.CryptoMiner.Level), settings.minerUpdateCost)
+	case "stealer":
+		return c.maxUpgrades(availableMoney, int(c.Stealer.Level), settings.stealerUpdateCost)
+	default:
+		return 0 // or handle unknown component case
+	}
+}
+
 // Publish the steal event to the websocket connection
 // Shows who stole from whom and how much they stole
 func broadcastStealEvent(topic string, nc *nats.Conn, wsmessage chan []byte) {
@@ -155,7 +216,8 @@ func minerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
 			log.Fatalln(err)
 		}
 		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "miner").Inc()
-		cost := float32(c.CryptoMiner.Level) * settings.minerUpdateCost
+		//cost := float32(c.CryptoMiner.Level) * settings.minerUpdateCost
+		cost := c.UpgradeCost("miner", 1, settings)
 		if c.Funds.Amount >= cost {
 			// Allow commandCenter to purchase the upgrade
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
@@ -210,7 +272,8 @@ func firewallUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte)
 			log.Fatalln(err)
 		}
 		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "firewall").Inc()
-		cost := float32(c.Firewall.Level) * settings.firewallUpdateCost
+		//cost := float32(c.Firewall.Level) * settings.firewallUpdateCost
+		cost := c.UpgradeCost("firewall", 1, settings)
 		if c.Funds.Amount >= cost {
 			// Allow commandCenter to purchase the upgrade
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
@@ -264,7 +327,8 @@ func stealerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 			log.Fatalln(err)
 		}
 		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "stealer").Inc()
-		cost := float32(c.Stealer.Level) * settings.stealerUpdateCost
+		//cost := float32(c.Stealer.Level) * settings.stealerUpdateCost
+		cost := c.UpgradeCost("stealer", 1, settings)
 		if c.Funds.Amount >= cost {
 			// Allow commandCenter to purchase the upgrade
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
@@ -318,7 +382,8 @@ func scannerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 			log.Fatalln(err)
 		}
 		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "scanner").Inc()
-		cost := float32(c.Scanner.Level) * settings.scannerUpdateCost
+		//cost := float32(c.Scanner.Level) * settings.scannerUpdateCost
+		cost := c.UpgradeCost("scanner", 1, settings)
 		if c.Funds.Amount >= cost {
 			// Allow commandCenter to purchase the upgrade
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
