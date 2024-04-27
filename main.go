@@ -44,8 +44,9 @@ type GameSettings struct {
 
 // UpgradeReply struct
 type UpgradeReply struct {
-	Allow bool    `json:"success"`
-	Cost  float32 `json:"cost"`
+	Allow  bool    `json:"success"`
+	Cost   float32 `json:"cost"`
+	Levels float32 `json:"levels"`
 }
 
 // StealReply struct
@@ -87,10 +88,66 @@ var (
 	monitor = Monitor{}
 )
 
-const (
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-)
+func (c *CommandCenter) calculateUpgrade(level float32, numUpgrades int, baseCost float32) float32 {
+	costAtCurrentLevel := level * baseCost                                                           //0.1
+	totalCost := float32(numUpgrades) / 2 * (2*costAtCurrentLevel + float32(numUpgrades-1)*baseCost) //0.1)
+	return totalCost
+}
+
+func (c *CommandCenter) UpgradeCost(component string, numUpgrades int, settings GameSettings) float32 {
+	switch component {
+	case "firewall":
+		return c.calculateUpgrade(c.Firewall.Level, numUpgrades, settings.firewallUpdateCost)
+	case "scanner":
+		return c.calculateUpgrade(c.Scanner.Level, numUpgrades, settings.scannerUpdateCost)
+	case "miner":
+		return c.calculateUpgrade(c.CryptoMiner.Level, numUpgrades, settings.minerUpdateCost)
+	case "stealer":
+		return c.calculateUpgrade(c.Stealer.Level, numUpgrades, settings.stealerUpdateCost)
+	default:
+		return 0.0 // or handle unknown functionality case
+	}
+}
+
+func (c *CommandCenter) maxUpgrades(availableMoney float32, currentLevel int, baseCost float32) int {
+	// Calculate cost at current level
+	costAtCurrentLevel := float32(currentLevel) * baseCost // 0.1
+	// If the cost at the current level is greater than available money, no upgrades possible
+	if costAtCurrentLevel > availableMoney {
+		return 0
+	}
+	// Initialize the maximum number of upgrades with one upgrade at the current level
+	maxUpgrades := 1
+	totalCost := costAtCurrentLevel
+	// Calculate the cost for each additional upgrade until it exceeds available money
+	for {
+		// Calculate the cost for one more upgrade
+		cost := float32(maxUpgrades+currentLevel) * baseCost //0.1
+		// If adding one more upgrade exceeds available money, stop
+		if totalCost+cost > availableMoney {
+			break
+		}
+		// Otherwise, increment maxUpgrades and update totalCost
+		maxUpgrades++
+		totalCost += cost
+	}
+	return maxUpgrades
+}
+
+func (c *CommandCenter) MaxUpgradesByComponent(availableMoney float32, component string, currentLevel int, settings GameSettings) int {
+	switch component {
+	case "firewall":
+		return c.maxUpgrades(availableMoney, int(c.Firewall.Level), settings.firewallUpdateCost)
+	case "scanner":
+		return c.maxUpgrades(availableMoney, int(c.Scanner.Level), settings.scannerUpdateCost)
+	case "miner":
+		return c.maxUpgrades(availableMoney, int(c.CryptoMiner.Level), settings.minerUpdateCost)
+	case "stealer":
+		return c.maxUpgrades(availableMoney, int(c.Stealer.Level), settings.stealerUpdateCost)
+	default:
+		return 0 // or handle unknown component case
+	}
+}
 
 // Publish the steal event to the websocket connection
 // Shows who stole from whom and how much they stole
@@ -143,10 +200,9 @@ func broadcastEvents(topic string, eventMessage string, nc *nats.Conn, wsmessage
 	}
 }
 
-// Handle client miner upgrades
-func minerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+func handleMinerUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, wsmessage chan []byte, maxUpgrade bool) {
 	// Subscribe
-	if _, err := nc.QueueSubscribe("commandcenter.*.upgradeMiner", "master", func(m *nats.Msg) {
+	if _, err := nc.QueueSubscribe(topic, "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
 		c := CommandCenter{}
 		// Load received values
@@ -155,13 +211,22 @@ func minerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
 			log.Fatalln(err)
 		}
 		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "miner").Inc()
-		cost := float32(c.CryptoMiner.Level) * settings.minerUpdateCost
-		if c.Funds.Amount >= cost {
+
+		var maxLevels int
+		if maxUpgrade {
+			maxLevels = c.MaxUpgradesByComponent(c.Funds.Amount, "miner", int(c.CryptoMiner.Level), settings)
+		} else {
+			maxLevels = 1
+		}
+		cost := c.UpgradeCost("miner", maxLevels, settings)
+
+		if c.Funds.Amount >= cost && cost > 0 {
 			// Allow commandCenter to purchase the upgrade
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
 			reply := UpgradeReply{
-				Allow: true,
-				Cost:  cost,
+				Allow:  true,
+				Cost:   cost,
+				Levels: float32(maxLevels),
 			}
 			jsonReply, err := json.Marshal(reply)
 			if err != nil {
@@ -182,10 +247,13 @@ func minerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
 
 		} else {
 			// Deny commandCenter the upgrade
+			// Get price for just 1 upgrade to report back to request
+			cost := c.UpgradeCost("miner", 1, settings)
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
 			reply := UpgradeReply{
-				Allow: false,
-				Cost:  cost,
+				Allow:  false,
+				Cost:   cost,
+				Levels: 0,
 			}
 			jsonReply, err := json.Marshal(reply)
 			if err != nil {
@@ -198,10 +266,16 @@ func minerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
 	}
 }
 
-// Handle client firewall upgrades
-func firewallUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+func minerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+	handleMinerUpgradeRequest(nc, "commandcenter.*.upgradeMiner", settings, wsmessage, false)
+}
+func minerUpdateMax(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+	handleMinerUpgradeRequest(nc, "commandcenter.*.upgradeMiner.max", settings, wsmessage, true)
+}
+
+func handleFirewallUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, wsmessage chan []byte, maxUpgrade bool) {
 	// Subscribe
-	if _, err := nc.QueueSubscribe("commandcenter.*.upgradeFirewall", "master", func(m *nats.Msg) {
+	if _, err := nc.QueueSubscribe(topic, "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
 		c := CommandCenter{}
 		// Load received values
@@ -210,13 +284,22 @@ func firewallUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte)
 			log.Fatalln(err)
 		}
 		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "firewall").Inc()
-		cost := float32(c.Firewall.Level) * settings.firewallUpdateCost
-		if c.Funds.Amount >= cost {
+
+		var maxLevels int
+		if maxUpgrade {
+			maxLevels = c.MaxUpgradesByComponent(c.Funds.Amount, "firewall", int(c.Firewall.Level), settings)
+		} else {
+			maxLevels = 1
+		}
+		cost := c.UpgradeCost("firewall", maxLevels, settings)
+
+		if c.Funds.Amount >= cost && cost > 0 {
 			// Allow commandCenter to purchase the upgrade
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
 			reply := UpgradeReply{
-				Allow: true,
-				Cost:  cost,
+				Allow:  true,
+				Cost:   cost,
+				Levels: float32(maxLevels),
 			}
 			jsonReply, err := json.Marshal(reply)
 			if err != nil {
@@ -234,12 +317,16 @@ func firewallUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte)
 			}
 			// Write message to channel to be written to websocket connection
 			wsmessage <- message
+
 		} else {
 			// Deny commandCenter the upgrade
+			// Get price for just 1 upgrade to report back to request
+			cost := c.UpgradeCost("firewall", 1, settings)
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
 			reply := UpgradeReply{
-				Allow: false,
-				Cost:  cost,
+				Allow:  false,
+				Cost:   cost,
+				Levels: 0,
 			}
 			jsonReply, err := json.Marshal(reply)
 			if err != nil {
@@ -251,11 +338,16 @@ func firewallUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte)
 		log.Fatal(err)
 	}
 }
+func firewallUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+	handleFirewallUpgradeRequest(nc, "commandcenter.*.upgradeFirewall", settings, wsmessage, false)
+}
+func firewallUpdateMax(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+	handleFirewallUpgradeRequest(nc, "commandcenter.*.upgradeFirewall.max", settings, wsmessage, true)
+}
 
-// Handle client stealer upgrades
-func stealerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+func handleStealerUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, wsmessage chan []byte, maxUpgrade bool) {
 	// Subscribe
-	if _, err := nc.QueueSubscribe("commandcenter.*.upgradeStealer", "master", func(m *nats.Msg) {
+	if _, err := nc.QueueSubscribe(topic, "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
 		c := CommandCenter{}
 		// Load received values
@@ -264,13 +356,22 @@ func stealerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 			log.Fatalln(err)
 		}
 		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "stealer").Inc()
-		cost := float32(c.Stealer.Level) * settings.stealerUpdateCost
-		if c.Funds.Amount >= cost {
+
+		var maxLevels int
+		if maxUpgrade {
+			maxLevels = c.MaxUpgradesByComponent(c.Funds.Amount, "stealer", int(c.Stealer.Level), settings)
+		} else {
+			maxLevels = 1
+		}
+		cost := c.UpgradeCost("stealer", maxLevels, settings)
+
+		if c.Funds.Amount >= cost && cost > 0 {
 			// Allow commandCenter to purchase the upgrade
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
 			reply := UpgradeReply{
-				Allow: true,
-				Cost:  cost,
+				Allow:  true,
+				Cost:   cost,
+				Levels: float32(maxLevels),
 			}
 			jsonReply, err := json.Marshal(reply)
 			if err != nil {
@@ -288,12 +389,16 @@ func stealerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 			}
 			// Write message to channel to be written to websocket connection
 			wsmessage <- message
+
 		} else {
 			// Deny commandCenter the upgrade
+			// Get price for just 1 upgrade to report back to request
+			cost := c.UpgradeCost("stealer", 1, settings)
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
 			reply := UpgradeReply{
-				Allow: false,
-				Cost:  cost,
+				Allow:  false,
+				Cost:   cost,
+				Levels: 0,
 			}
 			jsonReply, err := json.Marshal(reply)
 			if err != nil {
@@ -305,11 +410,16 @@ func stealerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 		log.Fatal(err)
 	}
 }
+func stealerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+	handleStealerUpgradeRequest(nc, "commandcenter.*.upgradeStealer", settings, wsmessage, false)
+}
+func stealerUpdateMax(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+	handleStealerUpgradeRequest(nc, "commandcenter.*.upgradeStealer.max", settings, wsmessage, true)
+}
 
-// Handle client scanner upgrades
-func scannerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+func handleScannerUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, wsmessage chan []byte, maxUpgrade bool) {
 	// Subscribe
-	if _, err := nc.QueueSubscribe("commandcenter.*.upgradeScanner", "master", func(m *nats.Msg) {
+	if _, err := nc.QueueSubscribe(topic, "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
 		c := CommandCenter{}
 		// Load received values
@@ -318,13 +428,22 @@ func scannerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 			log.Fatalln(err)
 		}
 		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "scanner").Inc()
-		cost := float32(c.Scanner.Level) * settings.scannerUpdateCost
-		if c.Funds.Amount >= cost {
+
+		var maxLevels int
+		if maxUpgrade {
+			maxLevels = c.MaxUpgradesByComponent(c.Funds.Amount, "scanner", int(c.Stealer.Level), settings)
+		} else {
+			maxLevels = 1
+		}
+		cost := c.UpgradeCost("scanner", maxLevels, settings)
+
+		if c.Funds.Amount >= cost && cost > 0 {
 			// Allow commandCenter to purchase the upgrade
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
 			reply := UpgradeReply{
-				Allow: true,
-				Cost:  cost,
+				Allow:  true,
+				Cost:   cost,
+				Levels: float32(maxLevels),
 			}
 			jsonReply, err := json.Marshal(reply)
 			if err != nil {
@@ -342,23 +461,32 @@ func scannerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) 
 			}
 			// Write message to channel to be written to websocket connection
 			wsmessage <- message
+
 		} else {
 			// Deny commandCenter the upgrade
+			// Get price for just 1 upgrade to report back to request
+			cost := c.UpgradeCost("scanner", 1, settings)
 			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
 			reply := UpgradeReply{
-				Allow: false,
-				Cost:  cost,
+				Allow:  false,
+				Cost:   cost,
+				Levels: 0,
 			}
 			jsonReply, err := json.Marshal(reply)
 			if err != nil {
 				log.Fatalln(err)
 			}
 			m.Respond(jsonReply)
-
 		}
 	}); err != nil {
 		log.Fatal(err)
 	}
+}
+func scannerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+	handleScannerUpgradeRequest(nc, "commandcenter.*.upgradeScanner", settings, wsmessage, false)
+}
+func scannerUpdateMax(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+	handleScannerUpgradeRequest(nc, "commandcenter.*.upgradeScanner.max", settings, wsmessage, true)
 }
 
 // This keeps the webcocket connection alive. The server handles each client connection.
@@ -432,9 +560,13 @@ func main() {
 
 	// Run goroutines handling updates and broadcasts for the websocket connection
 	go minerUpdate(nc, settings, wsmessage)
+	go minerUpdateMax(nc, settings, wsmessage)
 	go firewallUpdate(nc, settings, wsmessage)
+	go firewallUpdateMax(nc, settings, wsmessage)
 	go scannerUpdate(nc, settings, wsmessage)
+	go scannerUpdateMax(nc, settings, wsmessage)
 	go stealerUpdate(nc, settings, wsmessage)
+	go stealerUpdateMax(nc, settings, wsmessage)
 	go broadcastEvents("scanevent", "initiated a scan", nc, wsmessage)
 	go broadcastEvents("stealevent", "is trying to steal coins", nc, wsmessage)
 	go broadcastStealEvent("stealresult", nc, wsmessage)
