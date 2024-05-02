@@ -17,6 +17,7 @@ import (
 type CommandCenter struct {
 	ID       string `json:"id"`
 	Nick     string `json:"nick"`
+	Team     string `json:"team"`
 	Firewall struct {
 		Level float32 `json:"level"`
 	} `json:"firewall"`
@@ -32,6 +33,11 @@ type CommandCenter struct {
 	Stealer struct {
 		Level float32 `json:"level"`
 	} `json:"stealer"`
+	Vault struct {
+		Level    float32 `json:"level"`
+		Amount   float32 `json:"amount"`
+		Capacity float32 `json:"capacity"`
+	} `json:"vault"`
 }
 
 // GameSettings struct
@@ -40,6 +46,7 @@ type GameSettings struct {
 	firewallUpdateCost float32
 	scannerUpdateCost  float32
 	stealerUpdateCost  float32
+	vaultUpdateCost    float32
 }
 
 // UpgradeReply struct
@@ -89,8 +96,8 @@ var (
 )
 
 func (c *CommandCenter) calculateUpgrade(level float32, numUpgrades int, baseCost float32) float32 {
-	costAtCurrentLevel := level * baseCost                                                           //0.1
-	totalCost := float32(numUpgrades) / 2 * (2*costAtCurrentLevel + float32(numUpgrades-1)*baseCost) //0.1)
+	costAtCurrentLevel := level * baseCost
+	totalCost := float32(numUpgrades) / 2 * (2*costAtCurrentLevel + float32(numUpgrades-1)*baseCost)
 	return totalCost
 }
 
@@ -104,6 +111,8 @@ func (c *CommandCenter) UpgradeCost(component string, numUpgrades int, settings 
 		return c.calculateUpgrade(c.CryptoMiner.Level, numUpgrades, settings.minerUpdateCost)
 	case "stealer":
 		return c.calculateUpgrade(c.Stealer.Level, numUpgrades, settings.stealerUpdateCost)
+	case "vault":
+		return c.calculateUpgrade(c.Vault.Level, numUpgrades, settings.vaultUpdateCost)
 	default:
 		return 0.0 // or handle unknown functionality case
 	}
@@ -144,6 +153,8 @@ func (c *CommandCenter) MaxUpgradesByComponent(availableMoney float32, component
 		return c.maxUpgrades(availableMoney, int(c.CryptoMiner.Level), settings.minerUpdateCost)
 	case "stealer":
 		return c.maxUpgrades(availableMoney, int(c.Stealer.Level), settings.stealerUpdateCost)
+	case "vault":
+		return c.maxUpgrades(availableMoney, int(c.Vault.Level), settings.vaultUpdateCost)
 	default:
 		return 0 // or handle unknown component case
 	}
@@ -198,6 +209,77 @@ func broadcastEvents(topic string, eventMessage string, nc *nats.Conn, wsmessage
 	}); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// Handles vault upgrade request. This will not have a max buy option since the vault upgrade costs as much as its capacity
+func handleVaultUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, wsmessage chan []byte, maxUpgrade bool) {
+	// Subscribe
+	if _, err := nc.QueueSubscribe(topic, "master", func(m *nats.Msg) {
+		// Initialize CommandCenter struct
+		c := CommandCenter{}
+		// Load received values
+		err := json.Unmarshal(m.Data, &c)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "vault").Inc()
+
+		var maxLevels int
+		if maxUpgrade {
+			maxLevels = c.MaxUpgradesByComponent(c.Funds.Amount, "vault", int(c.CryptoMiner.Level), settings)
+		} else {
+			maxLevels = 1
+		}
+		cost := c.UpgradeCost("vault", maxLevels, settings)
+
+		if c.Funds.Amount >= cost && cost > 0 {
+			// Allow commandCenter to purchase the upgrade
+			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
+			reply := UpgradeReply{
+				Allow:  true,
+				Cost:   cost,
+				Levels: float32(maxLevels),
+			}
+			jsonReply, err := json.Marshal(reply)
+			if err != nil {
+				log.Fatalln(err)
+			}
+			m.Respond(jsonReply)
+
+			msg := Msg{
+				Data: fmt.Sprintf("%s upgraded their vault.", c.Nick),
+				Id:   c.ID,
+			}
+			message, err := json.Marshal(msg)
+			if err != nil {
+				log.Fatalln(err)
+			}
+			// Write message to channel to be written to websocket connection
+			wsmessage <- message
+
+		} else {
+			// Deny commandCenter the upgrade
+			// Get price for just 1 upgrade to report back to request
+			cost := c.UpgradeCost("vault", 1, settings)
+			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
+			reply := UpgradeReply{
+				Allow:  false,
+				Cost:   cost,
+				Levels: 0,
+			}
+			jsonReply, err := json.Marshal(reply)
+			if err != nil {
+				log.Fatalln(err)
+			}
+			m.Respond(jsonReply)
+		}
+	}); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func vaultUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
+	handleVaultUpgradeRequest(nc, "commandcenter.*.upgradeVault", settings, wsmessage, false)
 }
 
 func handleMinerUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, wsmessage chan []byte, maxUpgrade bool) {
@@ -550,6 +632,7 @@ func main() {
 		firewallUpdateCost: 0.1,
 		scannerUpdateCost:  0.1,
 		stealerUpdateCost:  0.1,
+		vaultUpdateCost:    10.0,
 	}
 
 	// Log when nats cannot connect
@@ -567,6 +650,7 @@ func main() {
 	go scannerUpdateMax(nc, settings, wsmessage)
 	go stealerUpdate(nc, settings, wsmessage)
 	go stealerUpdateMax(nc, settings, wsmessage)
+	go vaultUpdate(nc, settings, wsmessage)
 	go broadcastEvents("scanevent", "initiated a scan", nc, wsmessage)
 	go broadcastEvents("stealevent", "is trying to steal coins", nc, wsmessage)
 	go broadcastStealEvent("stealresult", nc, wsmessage)
