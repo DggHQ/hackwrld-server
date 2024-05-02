@@ -226,15 +226,15 @@ func handleVaultUpgradeRequest(nc *nats.Conn, topic string, settings GameSetting
 
 		var maxLevels int
 		if maxUpgrade {
-			maxLevels = c.MaxUpgradesByComponent(c.Funds.Amount, "vault", int(c.CryptoMiner.Level), settings)
+			maxLevels = c.MaxUpgradesByComponent(c.Vault.Amount, "vault", int(c.CryptoMiner.Level), settings)
 		} else {
 			maxLevels = 1
 		}
 		cost := c.UpgradeCost("vault", maxLevels, settings)
 
-		if c.Funds.Amount >= cost && cost > 0 {
+		if c.Vault.Amount >= cost && cost > 0 {
 			// Allow commandCenter to purchase the upgrade
-			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
+			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Vault.Amount, cost)
 			reply := UpgradeReply{
 				Allow:  true,
 				Cost:   cost,
@@ -261,7 +261,7 @@ func handleVaultUpgradeRequest(nc *nats.Conn, topic string, settings GameSetting
 			// Deny commandCenter the upgrade
 			// Get price for just 1 upgrade to report back to request
 			cost := c.UpgradeCost("vault", 1, settings)
-			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
+			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Vault.Amount, cost)
 			reply := UpgradeReply{
 				Allow:  false,
 				Cost:   cost,
@@ -296,15 +296,15 @@ func handleMinerUpgradeRequest(nc *nats.Conn, topic string, settings GameSetting
 
 		var maxLevels int
 		if maxUpgrade {
-			maxLevels = c.MaxUpgradesByComponent(c.Funds.Amount, "miner", int(c.CryptoMiner.Level), settings)
+			maxLevels = c.MaxUpgradesByComponent(c.Vault.Amount, "miner", int(c.CryptoMiner.Level), settings)
 		} else {
 			maxLevels = 1
 		}
 		cost := c.UpgradeCost("miner", maxLevels, settings)
 
-		if c.Funds.Amount >= cost && cost > 0 {
+		if c.Vault.Amount >= cost && cost > 0 {
 			// Allow commandCenter to purchase the upgrade
-			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
+			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Vault.Amount, cost)
 			reply := UpgradeReply{
 				Allow:  true,
 				Cost:   cost,
@@ -331,7 +331,7 @@ func handleMinerUpgradeRequest(nc *nats.Conn, topic string, settings GameSetting
 			// Deny commandCenter the upgrade
 			// Get price for just 1 upgrade to report back to request
 			cost := c.UpgradeCost("miner", 1, settings)
-			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
+			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Vault.Amount, cost)
 			reply := UpgradeReply{
 				Allow:  false,
 				Cost:   cost,
@@ -369,15 +369,15 @@ func handleFirewallUpgradeRequest(nc *nats.Conn, topic string, settings GameSett
 
 		var maxLevels int
 		if maxUpgrade {
-			maxLevels = c.MaxUpgradesByComponent(c.Funds.Amount, "firewall", int(c.Firewall.Level), settings)
+			maxLevels = c.MaxUpgradesByComponent(c.Vault.Amount, "firewall", int(c.Firewall.Level), settings)
 		} else {
 			maxLevels = 1
 		}
 		cost := c.UpgradeCost("firewall", maxLevels, settings)
 
-		if c.Funds.Amount >= cost && cost > 0 {
+		if c.Vault.Amount >= cost && cost > 0 {
 			// Allow commandCenter to purchase the upgrade
-			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
+			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Vault.Amount, cost)
 			reply := UpgradeReply{
 				Allow:  true,
 				Cost:   cost,
@@ -404,7 +404,7 @@ func handleFirewallUpgradeRequest(nc *nats.Conn, topic string, settings GameSett
 			// Deny commandCenter the upgrade
 			// Get price for just 1 upgrade to report back to request
 			cost := c.UpgradeCost("firewall", 1, settings)
-			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
+			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Vault.Amount, cost)
 			reply := UpgradeReply{
 				Allow:  false,
 				Cost:   cost,
@@ -441,15 +441,15 @@ func handleStealerUpgradeRequest(nc *nats.Conn, topic string, settings GameSetti
 
 		var maxLevels int
 		if maxUpgrade {
-			maxLevels = c.MaxUpgradesByComponent(c.Funds.Amount, "stealer", int(c.Stealer.Level), settings)
+			maxLevels = c.MaxUpgradesByComponent(c.Vault.Amount, "stealer", int(c.Stealer.Level), settings)
 		} else {
 			maxLevels = 1
 		}
 		cost := c.UpgradeCost("stealer", maxLevels, settings)
 
-		if c.Funds.Amount >= cost && cost > 0 {
+		if c.Vault.Amount >= cost && cost > 0 {
 			// Allow commandCenter to purchase the upgrade
-			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
+			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Vault.Amount, cost)
 			reply := UpgradeReply{
 				Allow:  true,
 				Cost:   cost,
@@ -476,7 +476,7 @@ func handleStealerUpgradeRequest(nc *nats.Conn, topic string, settings GameSetti
 			// Deny commandCenter the upgrade
 			// Get price for just 1 upgrade to report back to request
 			cost := c.UpgradeCost("stealer", 1, settings)
-			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
+			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Vault.Amount, cost)
 			reply := UpgradeReply{
 				Allow:  false,
 				Cost:   cost,
@@ -513,15 +513,15 @@ func handleScannerUpgradeRequest(nc *nats.Conn, topic string, settings GameSetti
 
 		var maxLevels int
 		if maxUpgrade {
-			maxLevels = c.MaxUpgradesByComponent(c.Funds.Amount, "scanner", int(c.Stealer.Level), settings)
+			maxLevels = c.MaxUpgradesByComponent(c.Vault.Amount, "scanner", int(c.Stealer.Level), settings)
 		} else {
 			maxLevels = 1
 		}
 		cost := c.UpgradeCost("scanner", maxLevels, settings)
 
-		if c.Funds.Amount >= cost && cost > 0 {
+		if c.Vault.Amount >= cost && cost > 0 {
 			// Allow commandCenter to purchase the upgrade
-			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Funds.Amount, cost)
+			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is permitted.", c.ID, c.Vault.Amount, cost)
 			reply := UpgradeReply{
 				Allow:  true,
 				Cost:   cost,
@@ -548,7 +548,7 @@ func handleScannerUpgradeRequest(nc *nats.Conn, topic string, settings GameSetti
 			// Deny commandCenter the upgrade
 			// Get price for just 1 upgrade to report back to request
 			cost := c.UpgradeCost("scanner", 1, settings)
-			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Funds.Amount, cost)
+			log.Printf("Available Funds for %s are %f. Upgrade costs %f. Upgrade is denied.", c.ID, c.Vault.Amount, cost)
 			reply := UpgradeReply{
 				Allow:  false,
 				Cost:   cost,
