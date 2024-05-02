@@ -226,7 +226,7 @@ func handleVaultUpgradeRequest(nc *nats.Conn, topic string, settings GameSetting
 
 		var maxLevels int
 		if maxUpgrade {
-			maxLevels = c.MaxUpgradesByComponent(c.Vault.Amount, "vault", int(c.CryptoMiner.Level), settings)
+			maxLevels = c.MaxUpgradesByComponent(c.Vault.Amount, "vault", int(c.Vault.Level), settings)
 		} else {
 			maxLevels = 1
 		}
