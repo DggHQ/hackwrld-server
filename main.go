@@ -580,6 +580,7 @@ func readLoop(c *websocket.Conn) {
 			break
 		}
 	}
+	os.Exit(1)
 }
 
 // Handle setting of variables of env var is not set
