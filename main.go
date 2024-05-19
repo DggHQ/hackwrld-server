@@ -101,6 +101,10 @@ func (c *CommandCenter) calculateUpgrade(level float32, numUpgrades int, baseCos
 	return totalCost
 }
 
+func (c *CommandCenter) calculateVaultUpgrade(capacity float32) float32 {
+	return capacity
+}
+
 func (c *CommandCenter) UpgradeCost(component string, numUpgrades int, settings GameSettings) float32 {
 	switch component {
 	case "firewall":
@@ -112,7 +116,7 @@ func (c *CommandCenter) UpgradeCost(component string, numUpgrades int, settings 
 	case "stealer":
 		return c.calculateUpgrade(c.Stealer.Level, numUpgrades, settings.stealerUpdateCost)
 	case "vault":
-		return c.calculateUpgrade(c.Vault.Level, numUpgrades, settings.vaultUpdateCost)
+		return c.calculateVaultUpgrade(c.Vault.Capacity)
 	default:
 		return 0.0 // or handle unknown functionality case
 	}
