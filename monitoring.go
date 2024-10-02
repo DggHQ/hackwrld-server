@@ -14,7 +14,7 @@ type Monitor struct {
 
 func (m *Monitor) Run() {
 	http.Handle("/metrics", promhttp.Handler())
-	log.Fatal(http.ListenAndServe(":80", nil))
+	log.Fatal(http.ListenAndServe(":8089", nil))
 }
 
 func (m *Monitor) Init() *Monitor {

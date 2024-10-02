@@ -2,9 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -85,13 +83,6 @@ var (
 		nats.PingInterval(20*time.Second),
 		nats.MaxPingsOutstanding(5),
 	)
-	wsmessage = make(chan []byte)
-	u         = url.URL{
-		Scheme:   getEnv("SCHEME", "ws"),
-		Host:     fmt.Sprintf("%s:%s", getEnv("HOST", "localhost"), getEnv("PORT", "8080")),
-		Path:     "/ws",
-		RawQuery: fmt.Sprintf("token=%s", getEnv("KEY", "secret")),
-	}
 	monitor = Monitor{}
 )
 
@@ -166,7 +157,7 @@ func (c *CommandCenter) MaxUpgradesByComponent(availableMoney float32, component
 
 // Publish the steal event to the websocket connection
 // Shows who stole from whom and how much they stole
-func broadcastStealEvent(topic string, nc *nats.Conn, wsmessage chan []byte) {
+func broadcastStealEvent(topic string, nc *nats.Conn) {
 	if _, err := nc.QueueSubscribe(topic, "broadcast", func(m *nats.Msg) {
 		// Initialize StealReply struct
 		reply := StealReply{}
@@ -175,23 +166,15 @@ func broadcastStealEvent(topic string, nc *nats.Conn, wsmessage chan []byte) {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		msg := Msg{
-			Id:   reply.Defender.ID,
-			Data: fmt.Sprintf("%s lost %f coins to %s", reply.Defender.Nick, reply.GainedCoins, reply.Attacker.Nick),
-		}
-		message, err := json.Marshal(msg)
-		if err != nil {
-			log.Fatalln(err)
-		}
 		// Write message to channel to be written to websocket connection
-		wsmessage <- message
+
 	}); err != nil {
 		log.Fatal(err)
 	}
 }
 
 // Publish a clients scan event on the broadcasting websocket server
-func broadcastEvents(topic string, eventMessage string, nc *nats.Conn, wsmessage chan []byte) {
+func broadcastEvents(topic string, eventMessage string, nc *nats.Conn) {
 	if _, err := nc.QueueSubscribe(topic, "broadcast", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
 		c := CommandCenter{}
@@ -200,23 +183,15 @@ func broadcastEvents(topic string, eventMessage string, nc *nats.Conn, wsmessage
 		if err != nil {
 			log.Fatalln(err)
 		}
-		msg := Msg{
-			Data: fmt.Sprintf("%s %s", c.Nick, eventMessage),
-			Id:   c.ID,
-		}
-		message, err := json.Marshal(msg)
-		if err != nil {
-			log.Fatalln(err)
-		}
 		// Write message to channel to be written to websocket connection
-		wsmessage <- message
+
 	}); err != nil {
 		log.Fatal(err)
 	}
 }
 
 // Handles vault upgrade request. This will not have a max buy option since the vault upgrade costs as much as its capacity
-func handleVaultUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, wsmessage chan []byte, maxUpgrade bool) {
+func handleVaultUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, maxUpgrade bool) {
 	// Subscribe
 	if _, err := nc.QueueSubscribe(topic, "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
@@ -249,17 +224,7 @@ func handleVaultUpgradeRequest(nc *nats.Conn, topic string, settings GameSetting
 				log.Fatalln(err)
 			}
 			m.Respond(jsonReply)
-
-			msg := Msg{
-				Data: fmt.Sprintf("%s upgraded their vault.", c.Nick),
-				Id:   c.ID,
-			}
-			message, err := json.Marshal(msg)
-			if err != nil {
-				log.Fatalln(err)
-			}
 			// Write message to channel to be written to websocket connection
-			wsmessage <- message
 
 		} else {
 			// Deny commandCenter the upgrade
@@ -282,11 +247,11 @@ func handleVaultUpgradeRequest(nc *nats.Conn, topic string, settings GameSetting
 	}
 }
 
-func vaultUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
-	handleVaultUpgradeRequest(nc, "commandcenter.*.upgradeVault", settings, wsmessage, false)
+func vaultUpdate(nc *nats.Conn, settings GameSettings) {
+	handleVaultUpgradeRequest(nc, "commandcenter.*.upgradeVault", settings, false)
 }
 
-func handleMinerUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, wsmessage chan []byte, maxUpgrade bool) {
+func handleMinerUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, maxUpgrade bool) {
 	// Subscribe
 	if _, err := nc.QueueSubscribe(topic, "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
@@ -319,17 +284,7 @@ func handleMinerUpgradeRequest(nc *nats.Conn, topic string, settings GameSetting
 				log.Fatalln(err)
 			}
 			m.Respond(jsonReply)
-
-			msg := Msg{
-				Data: fmt.Sprintf("%s upgraded their miner.", c.Nick),
-				Id:   c.ID,
-			}
-			message, err := json.Marshal(msg)
-			if err != nil {
-				log.Fatalln(err)
-			}
 			// Write message to channel to be written to websocket connection
-			wsmessage <- message
 
 		} else {
 			// Deny commandCenter the upgrade
@@ -352,14 +307,14 @@ func handleMinerUpgradeRequest(nc *nats.Conn, topic string, settings GameSetting
 	}
 }
 
-func minerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
-	handleMinerUpgradeRequest(nc, "commandcenter.*.upgradeMiner", settings, wsmessage, false)
+func minerUpdate(nc *nats.Conn, settings GameSettings) {
+	handleMinerUpgradeRequest(nc, "commandcenter.*.upgradeMiner", settings, false)
 }
-func minerUpdateMax(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
-	handleMinerUpgradeRequest(nc, "commandcenter.*.upgradeMiner.max", settings, wsmessage, true)
+func minerUpdateMax(nc *nats.Conn, settings GameSettings) {
+	handleMinerUpgradeRequest(nc, "commandcenter.*.upgradeMiner.max", settings, true)
 }
 
-func handleFirewallUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, wsmessage chan []byte, maxUpgrade bool) {
+func handleFirewallUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, maxUpgrade bool) {
 	// Subscribe
 	if _, err := nc.QueueSubscribe(topic, "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
@@ -393,16 +348,7 @@ func handleFirewallUpgradeRequest(nc *nats.Conn, topic string, settings GameSett
 			}
 			m.Respond(jsonReply)
 
-			msg := Msg{
-				Data: fmt.Sprintf("%s upgraded their firewall.", c.Nick),
-				Id:   c.ID,
-			}
-			message, err := json.Marshal(msg)
-			if err != nil {
-				log.Fatalln(err)
-			}
 			// Write message to channel to be written to websocket connection
-			wsmessage <- message
 
 		} else {
 			// Deny commandCenter the upgrade
@@ -424,14 +370,14 @@ func handleFirewallUpgradeRequest(nc *nats.Conn, topic string, settings GameSett
 		log.Fatal(err)
 	}
 }
-func firewallUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
-	handleFirewallUpgradeRequest(nc, "commandcenter.*.upgradeFirewall", settings, wsmessage, false)
+func firewallUpdate(nc *nats.Conn, settings GameSettings) {
+	handleFirewallUpgradeRequest(nc, "commandcenter.*.upgradeFirewall", settings, false)
 }
-func firewallUpdateMax(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
-	handleFirewallUpgradeRequest(nc, "commandcenter.*.upgradeFirewall.max", settings, wsmessage, true)
+func firewallUpdateMax(nc *nats.Conn, settings GameSettings) {
+	handleFirewallUpgradeRequest(nc, "commandcenter.*.upgradeFirewall.max", settings, true)
 }
 
-func handleStealerUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, wsmessage chan []byte, maxUpgrade bool) {
+func handleStealerUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, maxUpgrade bool) {
 	// Subscribe
 	if _, err := nc.QueueSubscribe(topic, "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
@@ -464,17 +410,7 @@ func handleStealerUpgradeRequest(nc *nats.Conn, topic string, settings GameSetti
 				log.Fatalln(err)
 			}
 			m.Respond(jsonReply)
-
-			msg := Msg{
-				Data: fmt.Sprintf("%s upgraded their stealer.", c.Nick),
-				Id:   c.ID,
-			}
-			message, err := json.Marshal(msg)
-			if err != nil {
-				log.Fatalln(err)
-			}
 			// Write message to channel to be written to websocket connection
-			wsmessage <- message
 
 		} else {
 			// Deny commandCenter the upgrade
@@ -496,14 +432,14 @@ func handleStealerUpgradeRequest(nc *nats.Conn, topic string, settings GameSetti
 		log.Fatal(err)
 	}
 }
-func stealerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
-	handleStealerUpgradeRequest(nc, "commandcenter.*.upgradeStealer", settings, wsmessage, false)
+func stealerUpdate(nc *nats.Conn, settings GameSettings) {
+	handleStealerUpgradeRequest(nc, "commandcenter.*.upgradeStealer", settings, false)
 }
-func stealerUpdateMax(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
-	handleStealerUpgradeRequest(nc, "commandcenter.*.upgradeStealer.max", settings, wsmessage, true)
+func stealerUpdateMax(nc *nats.Conn, settings GameSettings) {
+	handleStealerUpgradeRequest(nc, "commandcenter.*.upgradeStealer.max", settings, true)
 }
 
-func handleScannerUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, wsmessage chan []byte, maxUpgrade bool) {
+func handleScannerUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, maxUpgrade bool) {
 	// Subscribe
 	if _, err := nc.QueueSubscribe(topic, "master", func(m *nats.Msg) {
 		// Initialize CommandCenter struct
@@ -537,16 +473,7 @@ func handleScannerUpgradeRequest(nc *nats.Conn, topic string, settings GameSetti
 			}
 			m.Respond(jsonReply)
 
-			msg := Msg{
-				Data: fmt.Sprintf("%s upgraded their scanner.", c.Nick),
-				Id:   c.ID,
-			}
-			message, err := json.Marshal(msg)
-			if err != nil {
-				log.Fatalln(err)
-			}
 			// Write message to channel to be written to websocket connection
-			wsmessage <- message
 
 		} else {
 			// Deny commandCenter the upgrade
@@ -568,11 +495,11 @@ func handleScannerUpgradeRequest(nc *nats.Conn, topic string, settings GameSetti
 		log.Fatal(err)
 	}
 }
-func scannerUpdate(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
-	handleScannerUpgradeRequest(nc, "commandcenter.*.upgradeScanner", settings, wsmessage, false)
+func scannerUpdate(nc *nats.Conn, settings GameSettings) {
+	handleScannerUpgradeRequest(nc, "commandcenter.*.upgradeScanner", settings, false)
 }
-func scannerUpdateMax(nc *nats.Conn, settings GameSettings, wsmessage chan []byte) {
-	handleScannerUpgradeRequest(nc, "commandcenter.*.upgradeScanner.max", settings, wsmessage, true)
+func scannerUpdateMax(nc *nats.Conn, settings GameSettings) {
+	handleScannerUpgradeRequest(nc, "commandcenter.*.upgradeScanner.max", settings, true)
 }
 
 // This keeps the webcocket connection alive. The server handles each client connection.
@@ -602,30 +529,6 @@ func init() {
 
 func main() {
 
-	log.Println("Connecting to socket server.")
-	log.Printf("connecting to %s", u.String())
-	// Connect to websocket server
-	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
-
-	// Keep websocket connection alive
-	go readLoop(c)
-
-	if err != nil {
-		log.Fatal("dial:", err)
-	}
-
-	// Launch goroutine that handles the messages that come into the channel and write them to the connection.
-	go func(connection *websocket.Conn) {
-		for msg := range wsmessage {
-			// Dunnot if writedeadline is needed since it seems to be working fine w/o it
-			//c.SetWriteDeadline(time.Now().Add(writeWait))
-			ok := c.WriteMessage(websocket.TextMessage, msg)
-			if ok != nil {
-				log.Println("write:", ok)
-			}
-		}
-	}(c)
-
 	log.Println("Starting gamemaster.")
 	// Set waitgroup to keep program running forever
 	wg := sync.WaitGroup{}
@@ -647,18 +550,18 @@ func main() {
 	defer nc.Close()
 
 	// Run goroutines handling updates and broadcasts for the websocket connection
-	go minerUpdate(nc, settings, wsmessage)
-	go minerUpdateMax(nc, settings, wsmessage)
-	go firewallUpdate(nc, settings, wsmessage)
-	go firewallUpdateMax(nc, settings, wsmessage)
-	go scannerUpdate(nc, settings, wsmessage)
-	go scannerUpdateMax(nc, settings, wsmessage)
-	go stealerUpdate(nc, settings, wsmessage)
-	go stealerUpdateMax(nc, settings, wsmessage)
-	go vaultUpdate(nc, settings, wsmessage)
-	go broadcastEvents("scanevent", "initiated a scan", nc, wsmessage)
-	go broadcastEvents("stealevent", "is trying to steal coins", nc, wsmessage)
-	go broadcastStealEvent("stealresult", nc, wsmessage)
+	go minerUpdate(nc, settings)
+	go minerUpdateMax(nc, settings)
+	go firewallUpdate(nc, settings)
+	go firewallUpdateMax(nc, settings)
+	go scannerUpdate(nc, settings)
+	go scannerUpdateMax(nc, settings)
+	go stealerUpdate(nc, settings)
+	go stealerUpdateMax(nc, settings)
+	go vaultUpdate(nc, settings)
+	go broadcastEvents("scanevent", "initiated a scan", nc)
+	go broadcastEvents("stealevent", "is trying to steal coins", nc)
+	go broadcastStealEvent("stealresult", nc)
 	go monitor.Run()
 
 	// TODO: Gamesettings listener (ADMIN TOOLS)
