@@ -168,7 +168,15 @@ func broadcastStealEvent(topic string, nc *nats.Conn) {
 			log.Fatalln(err)
 		}
 		// Write message to channel to be written to websocket connection
-
+		msg := Msg{
+			Id:   reply.Defender.ID,
+			Data: fmt.Sprintf("%s lost %f coins to %s", reply.Defender.Nick, reply.GainedCoins, reply.Attacker.Nick),
+		}
+		message, err := json.Marshal(msg)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		nc.Publish("updates", message)
 	}); err != nil {
 		log.Fatal(err)
 	}
