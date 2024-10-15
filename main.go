@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -183,7 +184,15 @@ func broadcastEvents(topic string, eventMessage string, nc *nats.Conn) {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		// Write message to channel to be written to websocket connection
+		msg := Msg{
+			Data: fmt.Sprintf("%s %s", c.Nick, eventMessage),
+			Id:   c.ID,
+		}
+		message, err := json.Marshal(msg)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		nc.Publish("updates", message)
 
 	}); err != nil {
 		log.Fatal(err)
