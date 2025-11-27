@@ -37,6 +37,11 @@ type CommandCenter struct {
 		Amount   float32 `json:"amount"`
 		Capacity float32 `json:"capacity"`
 	} `json:"vault"`
+	Inventory struct {
+		NFT struct {
+			Amount uint32 `json:"amount"`
+		} `json:"nft"`
+	} `json:"inventory"`
 }
 
 // GameSettings struct
@@ -53,6 +58,14 @@ type UpgradeReply struct {
 	Allow  bool    `json:"success"`
 	Cost   float32 `json:"cost"`
 	Levels float32 `json:"levels"`
+}
+
+// MintReply struct
+type MintReply struct {
+	Allow            bool    `json:"success"`
+	Cost             float32 `json:"cost"`
+	HasRequiredLevel bool    `json:"hasRequiredLevel"`
+	Amount           float32 `json:"amount"`
 }
 
 // StealReply struct
@@ -97,6 +110,11 @@ func (c *CommandCenter) calculateVaultUpgrade(capacity float32) float32 {
 	return capacity
 }
 
+// Get the current player level
+func (c *CommandCenter) GetPlayerLevel() float32 {
+	return c.Stealer.Level + c.Firewall.Level + c.CryptoMiner.Level + c.Scanner.Level
+}
+
 func (c *CommandCenter) UpgradeCost(component string, numUpgrades int, settings GameSettings) float32 {
 	switch component {
 	case "firewall":
@@ -109,11 +127,31 @@ func (c *CommandCenter) UpgradeCost(component string, numUpgrades int, settings 
 		return c.calculateUpgrade(c.Stealer.Level, numUpgrades, settings.stealerUpdateCost)
 	case "vault":
 		return c.calculateVaultUpgrade(c.Vault.Capacity)
+	case "nft":
+		return func(c *CommandCenter) float32 {
+			switch {
+			// In case the current player NFT amount is 0
+			// Cost will be the current player level
+			case c.Inventory.NFT.Amount == 0:
+				return c.GetPlayerLevel()
+			// In case the player already has an NFT
+			// set the cost equal to player level * 2
+			case c.Inventory.NFT.Amount == 1:
+				return c.GetPlayerLevel() * 2
+			// In case the player has more than 1 NFT
+			// set the cost equal to playerlevel * NFT amount +1
+			case c.Inventory.NFT.Amount > 1:
+				return c.GetPlayerLevel() * (float32(c.Inventory.NFT.Amount) + 1)
+			}
+			// fallback
+			return 0
+		}(c)
 	default:
 		return 0.0 // or handle unknown functionality case
 	}
 }
 
+// Calculate maximum number of possible immediate upgrades based on the player's available money, component level and the game base cost
 func (c *CommandCenter) maxUpgrades(availableMoney float32, currentLevel int, baseCost float32) int {
 	// Calculate cost at current level
 	costAtCurrentLevel := float32(currentLevel) * baseCost // 0.1
@@ -151,6 +189,9 @@ func (c *CommandCenter) MaxUpgradesByComponent(availableMoney float32, component
 		return c.maxUpgrades(availableMoney, int(c.Stealer.Level), settings.stealerUpdateCost)
 	case "vault":
 		return c.maxUpgrades(availableMoney, int(c.Vault.Level), settings.vaultUpdateCost)
+	case "nft":
+		// We only allow 1 NFT per upgrade event
+		return 1
 	default:
 		return 0 // or handle unknown component case
 	}
@@ -266,6 +307,84 @@ func handleVaultUpgradeRequest(nc *nats.Conn, topic string, settings GameSetting
 
 func vaultUpdate(nc *nats.Conn, settings GameSettings) {
 	handleVaultUpgradeRequest(nc, "commandcenter.*.upgradeVault", settings, false)
+}
+
+// Handles NFT minting request. This will not have a max buy option.
+func handleNFTMint(nc *nats.Conn, topic string, maxUpgrade bool) {
+	// Subscribe
+	if _, err := nc.QueueSubscribe(topic, "master", func(m *nats.Msg) {
+		// Initialize CommandCenter struct
+		c := CommandCenter{}
+		// Load received values
+		err := json.Unmarshal(m.Data, &c)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		monitor.UpgradeRequests.WithLabelValues(c.ID, c.Nick, "nft").Inc()
+		playerLevel := c.GetPlayerLevel()
+		var maxLevels int
+		if maxUpgrade {
+			maxLevels = c.MaxUpgradesByComponent(c.Vault.Amount, "nft", int(c.Vault.Level), GameSettings{})
+		} else {
+			maxLevels = 1
+		}
+		cost := c.UpgradeCost("nft", maxLevels, GameSettings{})
+		// Special case: Player needs to be at least level 100
+		switch {
+		case playerLevel < 100:
+			log.Printf("Player level (%s) is below 100. Current level: %f.", c.ID, playerLevel)
+			reply := MintReply{
+				Allow:            false,
+				Cost:             0,
+				HasRequiredLevel: false, // tell player, they dont have enough levels on player command center
+				Amount:           0,
+			}
+			jsonReply, err := json.Marshal(reply)
+			if err != nil {
+				log.Fatalln(err)
+			}
+			m.Respond(jsonReply)
+		case playerLevel >= 100:
+			if c.Vault.Amount >= cost && cost > 0 {
+				// Allow commandCenter to purchase the NFT
+				log.Printf("Available Funds for %s are %f. NFT costs %f. Minting is permitted.", c.ID, c.Vault.Amount, cost)
+				reply := MintReply{
+					Allow:            true,
+					Cost:             cost,
+					HasRequiredLevel: true,
+					Amount:           1,
+				}
+				jsonReply, err := json.Marshal(reply)
+				if err != nil {
+					log.Fatalln(err)
+				}
+				m.Respond(jsonReply)
+
+			} else {
+				// Deny commandCenter the upgrade
+				log.Printf("Available Funds for %s are %f. NFT costs %f. Minting is denied.", c.ID, c.Vault.Amount, cost)
+				reply := MintReply{
+					Allow:            false,
+					Cost:             cost,
+					HasRequiredLevel: true,
+					Amount:           0,
+				}
+				jsonReply, err := json.Marshal(reply)
+				if err != nil {
+					log.Fatalln(err)
+				}
+				m.Respond(jsonReply)
+			}
+		}
+
+	}); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// Handle mint nft requests
+func mintNFT(nc *nats.Conn) {
+	handleNFTMint(nc, "commandcenter.*.mintnft", false)
 }
 
 func handleMinerUpgradeRequest(nc *nats.Conn, topic string, settings GameSettings, maxUpgrade bool) {
@@ -576,6 +695,7 @@ func main() {
 	go stealerUpdate(nc, settings)
 	go stealerUpdateMax(nc, settings)
 	go vaultUpdate(nc, settings)
+	go mintNFT(nc)
 	go broadcastEvents("scanevent", "initiated a scan", nc)
 	go broadcastEvents("stealevent", "is trying to steal coins", nc)
 	go broadcastStealEvent("stealresult", nc)
