@@ -223,6 +223,34 @@ func broadcastStealEvent(topic string, nc *nats.Conn) {
 	}
 }
 
+// React when a player earns 10 NFTs
+// - Broadcast event, reset players bucket in NATS, add to winners bucket in NATS
+// - Create a Kubernetes Job that deletes all deployments, switches to maintenance, and reverts it back
+func winCondition(topic string, nc *nats.Conn) {
+	if _, err := nc.QueueSubscribe(topic, "wincondition", func(m *nats.Msg) {
+		// Initialize CommandCenter struct
+		c := CommandCenter{}
+		// Load received values
+		err := json.Unmarshal(m.Data, &c)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		// Write message to channel to be written to websocket connection
+		msg := Msg{
+			Id:   "system",
+			Data: fmt.Sprintf("Player %s has won the game by minting 10 NFTs. Restarting game now...", c.Nick),
+		}
+		message, err := json.Marshal(msg)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		nc.Publish("updates", message)
+		// TODO: Delete player bucket contents, add winner to winner bucket, create k8s job with kubectl commands.
+	}); err != nil {
+		log.Fatal(err)
+	}
+}
+
 // Publish a clients scan event on the broadcasting websocket server
 func broadcastEvents(topic string, eventMessage string, nc *nats.Conn) {
 	if _, err := nc.QueueSubscribe(topic, "broadcast", func(m *nats.Msg) {
@@ -698,6 +726,7 @@ func main() {
 	go mintNFT(nc)
 	go broadcastEvents("scanevent", "initiated a scan", nc)
 	go broadcastEvents("stealevent", "is trying to steal coins", nc)
+	go winCondition("wincondition", nc)
 	go broadcastStealEvent("stealresult", nc)
 	go monitor.Run()
 
